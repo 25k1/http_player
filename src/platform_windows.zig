@@ -18,6 +18,7 @@ const ERROR_ALREADY_EXISTS = 183;
 const ERROR_FILE_NOT_FOUND = 2;
 const EVENT_MODIFY_STATE = 0x0002;
 const ATTACH_PARENT_PROCESS: DWORD = 0xFFFFFFFF;
+const STD_INPUT_HANDLE: DWORD = @bitCast(@as(i32, -10));
 const STD_OUTPUT_HANDLE: DWORD = @bitCast(@as(i32, -11));
 const STD_ERROR_HANDLE: DWORD = @bitCast(@as(i32, -12));
 const MB_OK = 0x0;
@@ -33,8 +34,10 @@ const OPEN_EXISTING: DWORD = 3;
 const FILE_ATTRIBUTE_NORMAL: DWORD = 0x80;
 
 extern "kernel32" fn AttachConsole(process_id: DWORD) callconv(.winapi) BOOL;
+extern "kernel32" fn FreeConsole() callconv(.winapi) BOOL;
+extern "kernel32" fn CloseHandle(handle: HANDLE) callconv(.winapi) BOOL;
 extern "kernel32" fn GetStdHandle(std_handle: DWORD) callconv(.winapi) ?HANDLE;
-extern "kernel32" fn SetStdHandle(std_handle: DWORD, handle: HANDLE) callconv(.winapi) BOOL;
+extern "kernel32" fn SetStdHandle(std_handle: DWORD, handle: ?HANDLE) callconv(.winapi) BOOL;
 extern "kernel32" fn GetConsoleScreenBufferInfo(
     console: HANDLE,
     info: *ConsoleScreenBufferInfo,
@@ -94,12 +97,46 @@ const ConsoleScreenBufferInfo = extern struct {
 };
 
 var has_console_flag = false;
+var console_released = false;
+var conout_handle: ?HANDLE = null;
+var inherited_stdout: ?HANDLE = null;
+var inherited_stderr: ?HANDLE = null;
 
 pub fn hasConsole() bool {
     return has_console_flag;
 }
 
+pub fn releaseConsole() void {
+    if (!has_console_flag) return;
+
+    const stdin_handle = GetStdHandle(STD_INPUT_HANDLE);
+    _ = SetStdHandle(STD_INPUT_HANDLE, null);
+    _ = SetStdHandle(STD_OUTPUT_HANDLE, null);
+    _ = SetStdHandle(STD_ERROR_HANDLE, null);
+
+    closeHandle(conout_handle);
+    closeHandle(stdin_handle);
+    closeHandle(inherited_stdout);
+    closeHandle(inherited_stderr);
+    conout_handle = null;
+    inherited_stdout = null;
+    inherited_stderr = null;
+
+    _ = FreeConsole();
+
+    has_console_flag = false;
+    console_released = true;
+}
+
+fn closeHandle(handle: ?HANDLE) void {
+    const h = handle orelse return;
+    if (h == windows.INVALID_HANDLE_VALUE) return;
+    _ = CloseHandle(h);
+}
+
 pub fn showWithoutConsole(text: []const u8, is_error: bool) void {
+    if (console_released) return;
+
     var buf: [16384]u8 = undefined;
     const len = @min(text.len, buf.len - 1);
     @memcpy(buf[0..len], text[0..len]);
@@ -126,6 +163,9 @@ pub fn initConsole() void {
     if (has_console_flag) return;
     if (!AttachConsole(ATTACH_PARENT_PROCESS).toBool()) return;
 
+    inherited_stdout = GetStdHandle(STD_OUTPUT_HANDLE);
+    inherited_stderr = GetStdHandle(STD_ERROR_HANDLE);
+
     const conout = CreateFileW(
         std.unicode.utf8ToUtf16LeStringLiteral("CONOUT$"),
         GENERIC_READ | GENERIC_WRITE,
@@ -136,6 +176,7 @@ pub fn initConsole() void {
         null,
     );
     if (conout != windows.INVALID_HANDLE_VALUE) {
+        conout_handle = conout;
         _ = SetStdHandle(STD_OUTPUT_HANDLE, conout);
         _ = SetStdHandle(STD_ERROR_HANDLE, conout);
     }

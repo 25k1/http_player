@@ -14,6 +14,7 @@ pub const StopResult = enum { signalled, not_running, failed };
 
 pub const requestStop = detail.requestStop;
 pub const initConsole = detail.initConsole;
+pub const releaseConsole = detail.releaseConsole;
 pub const StopListener = detail.StopListener;
 pub const SingleInstanceGuard = detail.SingleInstanceGuard;
 

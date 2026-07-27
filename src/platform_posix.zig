@@ -27,6 +27,8 @@ pub fn consoleNeedsLeadingNewline() bool {
 
 pub fn initConsole() void {}
 
+pub fn releaseConsole() void {}
+
 pub fn nativeExecutablePath(arena: Allocator, io: Io) ?[]const u8 {
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     const len = Io.Dir.cwd().readLink(io, "/proc/self/exe", &buf) catch return null;

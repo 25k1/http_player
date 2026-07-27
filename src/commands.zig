@@ -124,6 +124,8 @@ fn serve(
     ) catch return fail(io, "out of memory");
     platform.showInfo(io, banner);
 
+    platform.releaseConsole();
+
     var stopper: platform.StopListener = .{};
     stopper.start(io, &server, onStop);
     defer stopper.deinit();
