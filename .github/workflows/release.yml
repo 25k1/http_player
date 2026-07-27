@@ -1,0 +1,110 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  ZIG_VERSION: 0.16.0
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            target: x86_64-linux-gnu
+            exe: http_player
+            archive: tar.gz
+          - name: windows-x86_64
+            target: x86_64-windows-gnu
+            exe: http_player.exe
+            archive: zip
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+          cache-key: ${{ matrix.target }}
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=0.0.0-dev+${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        run: |
+          zig build \
+            -Dtarget=${{ matrix.target }} \
+            -Doptimize=ReleaseSmall \
+            -Dversion=${{ steps.version.outputs.value }}
+
+      - name: Smoke test
+        if: matrix.target == 'x86_64-linux-gnu'
+        run: |
+          ./zig-out/bin/${{ matrix.exe }} --version
+          ./zig-out/bin/${{ matrix.exe }} --help > /dev/null
+
+      - name: Package
+        id: package
+        run: |
+          name="http-player-${{ steps.version.outputs.value }}-${{ matrix.name }}"
+          mkdir "$name"
+          cp "zig-out/bin/${{ matrix.exe }}" "$name/"
+          cp zig-out/bin/config.json "$name/"
+          cp README.md "$name/"
+          mkdir -p "$name/sounds"
+
+          if [[ "${{ matrix.archive }}" == zip ]]; then
+            zip -qr "$name.zip" "$name"
+          else
+            tar czf "$name.tar.gz" "$name"
+          fi
+          echo "file=$name.${{ matrix.archive }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ steps.package.outputs.file }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            prerelease=--prerelease
+          else
+            prerelease=
+          fi
+
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            $prerelease \
+            dist/*

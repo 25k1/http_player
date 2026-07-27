@@ -1,0 +1,18 @@
+#ifndef HTTP_PLAYER_MINIAUDIO_CONFIG_H
+#define HTTP_PLAYER_MINIAUDIO_CONFIG_H
+
+#define MA_NO_ENGINE
+#define MA_NO_NODE_GRAPH
+#define MA_NO_RESOURCE_MANAGER
+#define MA_NO_FLAC
+#define MA_NO_MP3
+#define MA_NO_ENCODING
+#define MA_NO_GENERATION
+#define MA_NO_NULL
+
+#ifdef _WIN32
+#define MA_ENABLE_ONLY_SPECIFIC_BACKENDS
+#define MA_ENABLE_WASAPI
+#endif
+
+#endif
