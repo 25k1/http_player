@@ -11,6 +11,8 @@ const sample_rate = 48000;
 const max_voices = 32;
 const chunk_frames = 256;
 
+const stall_timeout_ms = 2000;
+
 const Voice = struct {
     decoder: c.ma_decoder = undefined,
     gain: f32 = 1.0,
@@ -69,6 +71,10 @@ pub const AudioEngine = struct {
     io: Io,
     device: c.ma_device = undefined,
     device_ready: bool = false,
+    device_mutex: Io.Mutex = .init,
+    callbacks: std.atomic.Value(u64) = .init(0),
+    seen_callbacks: u64 = 0,
+    seen_at: Io.Timestamp = .zero,
     mutex: Io.Mutex = .init,
     voices: std.ArrayList(*Voice) = .empty,
 
@@ -77,6 +83,12 @@ pub const AudioEngine = struct {
     }
 
     pub fn start(self: *AudioEngine) bool {
+        self.device_mutex.lockUncancelable(self.io);
+        defer self.device_mutex.unlock(self.io);
+        return self.openDevice();
+    }
+
+    fn openDevice(self: *AudioEngine) bool {
         var cfg = c.ma_device_config_init(c.ma_device_type_playback);
         cfg.playback.format = format;
         cfg.playback.channels = channels;
@@ -90,12 +102,53 @@ pub const AudioEngine = struct {
             return false;
         }
         self.device_ready = true;
+        self.seen_callbacks = self.callbacks.load(.monotonic);
+        self.seen_at = Io.Clock.awake.now(self.io);
         return true;
     }
 
-    pub fn deinit(self: *AudioEngine) void {
+    fn closeDevice(self: *AudioEngine) void {
         if (self.device_ready) c.ma_device_uninit(&self.device);
         self.device_ready = false;
+    }
+
+    fn ensureDevice(self: *AudioEngine) bool {
+        self.device_mutex.lockUncancelable(self.io);
+        defer self.device_mutex.unlock(self.io);
+
+        if (self.device_ready and self.deviceHealthy()) return true;
+
+        self.closeDevice();
+        self.dropVoices();
+        return self.openDevice();
+    }
+
+    fn deviceHealthy(self: *AudioEngine) bool {
+        if (c.ma_device_get_state(&self.device) != c.ma_device_state_started) return false;
+
+        const now = Io.Clock.awake.now(self.io);
+        const count = self.callbacks.load(.monotonic);
+        if (count != self.seen_callbacks) {
+            self.seen_callbacks = count;
+            self.seen_at = now;
+            return true;
+        }
+        return self.seen_at.durationTo(now).toMilliseconds() < stall_timeout_ms;
+    }
+
+    fn dropVoices(self: *AudioEngine) void {
+        self.mutex.lockUncancelable(self.io);
+        defer self.mutex.unlock(self.io);
+
+        for (self.voices.items) |voice| {
+            voice.deinit();
+            self.gpa.destroy(voice);
+        }
+        self.voices.clearRetainingCapacity();
+    }
+
+    pub fn deinit(self: *AudioEngine) void {
+        self.closeDevice();
 
         for (self.voices.items) |voice| {
             voice.deinit();
@@ -105,7 +158,7 @@ pub const AudioEngine = struct {
     }
 
     pub fn play(self: *AudioEngine, path: []const u8, volume: f32) bool {
-        if (!self.device_ready) return false;
+        if (!self.ensureDevice()) return false;
 
         const voice = self.gpa.create(Voice) catch return false;
         voice.* = .{};
@@ -165,6 +218,7 @@ pub const AudioEngine = struct {
         frame_count: c.ma_uint32,
     ) callconv(.c) void {
         const self: *AudioEngine = @ptrCast(@alignCast(device.*.pUserData.?));
+        _ = self.callbacks.fetchAdd(1, .monotonic);
         const samples: [*]f32 = @ptrCast(@alignCast(output.?));
         self.mix(samples[0 .. @as(usize, frame_count) * channels]);
     }

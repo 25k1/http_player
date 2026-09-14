@@ -117,12 +117,14 @@ fn serve(
     defer server.deinit();
     server.bind(&e) catch return fail(io, e.msg);
 
-    const banner = std.fmt.allocPrint(
-        arena,
-        "Serving sounds from: {s}\nListening on http://{s}:{d}",
-        .{ cfg.sounds_dir, cfg.host, cfg.port },
-    ) catch return fail(io, "out of memory");
-    platform.showInfo(io, banner);
+    if (!opts.quiet) {
+        const banner = std.fmt.allocPrint(
+            arena,
+            "Serving sounds from: {s}\nListening on http://{s}:{d}",
+            .{ cfg.sounds_dir, cfg.host, cfg.port },
+        ) catch return fail(io, "out of memory");
+        platform.showInfo(io, banner);
+    }
 
     platform.releaseConsole();
 

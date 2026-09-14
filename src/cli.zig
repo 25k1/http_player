@@ -25,6 +25,7 @@ pub const Options = struct {
     command: Command = .none,
     show_help: bool = false,
     show_version: bool = false,
+    quiet: bool = false,
     err: ?[]const u8 = null,
 };
 
@@ -94,6 +95,10 @@ fn applyConfig(opts: *Options, value: []const u8, _: *Err) Failure!void {
     opts.overrides.config_path = value;
 }
 
+fn applyQuiet(opts: *Options, _: []const u8, _: *Err) Failure!void {
+    opts.quiet = true;
+}
+
 fn applyHelp(opts: *Options, _: []const u8, _: *Err) Failure!void {
     opts.show_help = true;
 }
@@ -140,6 +145,16 @@ const options: []const OptionSpec = &.{
         \\Command-line options override config values.
         ,
         .apply = applyConfig,
+    },
+    .{
+        .long_name = "--quiet",
+        .short_name = "-q",
+        .value_name = "",
+        .description =
+        \\Don't show the startup banner. Errors are still
+        \\shown. Added automatically by 'register'.
+        ,
+        .apply = applyQuiet,
     },
     .{
         .long_name = "--version",

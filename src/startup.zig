@@ -101,7 +101,7 @@ const win = if (is_windows) struct {
         var command: std.ArrayList(u8) = .empty;
         errdefer command.deinit(gpa);
 
-        try command.print(gpa, "\"{s}\"", .{exe[0..len]});
+        try command.print(gpa, "\"{s}\" --quiet", .{exe[0..len]});
         if (overrides.host) |host| try command.print(gpa, " --host {s}", .{host});
         if (overrides.port) |port| try command.print(gpa, " --port {d}", .{port});
         if (overrides.sounds_dir) |dir| {

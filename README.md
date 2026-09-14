@@ -22,7 +22,7 @@ All endpoints take and return JSON.
 { "file_name": "done.wav", "volume": 60 }
 ```
 
-`file_name` is a plain file name inside the sounds directory.
+`file_name` is a path relative to the sounds directory, so sounds can be organised into subdirectories: `"done.wav"`, `"alerts/error.wav"`.
 
 `volume` is optional, `0`–`100` percent, default `100`. It is a linear gain applied to that sound only.
 
@@ -33,7 +33,7 @@ All endpoints take and return JSON.
 | Response | Meaning |
 | --- | --- |
 | `200` | Playing |
-| `400` | Bad JSON, missing/unsafe `file_name`, or `volume` out of range |
+| `400` | Bad JSON, missing `file_name`, an incorrect file or path, or `volume` out of range |
 | `404` | No such file in the sounds directory |
 | `500` | The file could not be decoded or played |
 
@@ -96,6 +96,7 @@ overwritten.
 | `--port <n>` | `57919` |
 | `--sounds <dir>` | `sounds`, next to the executable |
 | `-c, --config <file>` | `config.json`, next to the executable |
+| `-q, --quiet` | Off. Hides the startup banner; errors are still shown. `register` adds it to the logon command |
 
 Run `http_player --help` for the full list.
 

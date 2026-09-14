@@ -29,7 +29,9 @@ pub const endpoints: []const Endpoint = &([_]Endpoint{
         .name = "POST /play",
         .description =
         \\Play a sound. Body: {"file_name": "<name>"}
-        \\<name> is a file inside the sounds directory.
+        \\<name> is a path relative to the sounds directory, e.g.
+        \\"done.wav" or "alerts/done.wav". Absolute paths and ".."
+        \\are rejected.
         \\Optional "volume": 0-100 percent (default 100).
         ,
     },
@@ -122,6 +124,7 @@ fn pathOf(target: []const u8) []const u8 {
 
 const PlayRequest = struct {
     file_name: []const u8 = "",
+    relative_path: []const u8 = "",
     volume_percent: f64 = default_volume_percent,
 
     fn gain(r: PlayRequest) f32 {
@@ -129,12 +132,23 @@ const PlayRequest = struct {
     }
 };
 
-fn isSafeFileName(name: []const u8) bool {
-    if (name.len == 0) return false;
-    if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) return false;
-    if (std.mem.indexOfAny(u8, name, "/\\") != null) return false;
-    if (is_windows and name.len >= 2 and name[1] == ':') return false;
-    return true;
+fn relativeSoundPath(gpa: Allocator, name: []const u8) ?[]const u8 {
+    if (name.len == 0) return null;
+    if (std.mem.indexOfScalar(u8, name, 0) != null) return null;
+    if (name[0] == '/' or name[0] == '\\') return null;
+    if (is_windows and std.mem.indexOfScalar(u8, name, ':') != null) return null;
+
+    var parts: std.ArrayList([]const u8) = .empty;
+    var it = std.mem.tokenizeAny(u8, name, "/\\");
+    while (it.next()) |part| {
+        if (std.mem.eql(u8, part, ".")) continue;
+        if (std.mem.eql(u8, part, "..")) return null;
+        if (is_windows and (part[part.len - 1] == '.' or part[part.len - 1] == ' ')) return null;
+        parts.append(gpa, part) catch return null;
+    }
+    if (parts.items.len == 0) return null;
+
+    return std.mem.join(gpa, std.fs.path.sep_str, parts.items) catch null;
 }
 
 fn parsePlayRequest(gpa: Allocator, body: []const u8, e: *Err) Failure!PlayRequest {
@@ -143,7 +157,8 @@ fn parsePlayRequest(gpa: Allocator, body: []const u8, e: *Err) Failure!PlayReque
 
     var request: PlayRequest = .{};
     try reader.requiredString("file_name", &request.file_name, e);
-    if (!isSafeFileName(request.file_name)) return e.set("invalid file_name", .{});
+    request.relative_path = relativeSoundPath(gpa, request.file_name) orelse
+        return e.set("invalid file_name", .{});
 
     try reader.number(
         "volume",
@@ -161,10 +176,10 @@ fn handlePlay(gpa: Allocator, ctx: Context, body: []const u8) Response {
     const request = parsePlayRequest(gpa, body, &e) catch
         return sendError(gpa, 400, e.msg);
 
-    const path = std.fs.path.join(gpa, &.{ ctx.sounds_dir, request.file_name }) catch
+    const path = std.fs.path.join(gpa, &.{ ctx.sounds_dir, request.relative_path }) catch
         return sendError(gpa, 500, "failed to play file");
 
-    if (!isRegularFile(ctx.io, path)) {
+    if (!isRegularFile(ctx.io, path) or !isInsideDir(ctx.io, ctx.sounds_dir, path)) {
         const message = std.fmt.allocPrint(gpa, "file not found: {s}", .{request.file_name}) catch
             return sendError(gpa, 404, "file not found");
         return sendError(gpa, 404, message);
@@ -204,6 +219,20 @@ fn handleSpeak(gpa: Allocator, ctx: Context, body: []const u8) Response {
 fn isRegularFile(io: Io, path: []const u8) bool {
     const stat = Io.Dir.cwd().statFile(io, path, .{}) catch return false;
     return stat.kind == .file;
+}
+
+fn isInsideDir(io: Io, dir: []const u8, path: []const u8) bool {
+    var dir_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+
+    const dir_len = Io.Dir.cwd().realPathFile(io, dir, &dir_buf) catch return false;
+    const path_len = Io.Dir.cwd().realPathFile(io, path, &path_buf) catch return false;
+    const real_dir = dir_buf[0..dir_len];
+    const real_path = path_buf[0..path_len];
+
+    if (real_dir.len == 0 or !std.mem.startsWith(u8, real_path, real_dir)) return false;
+    if (std.fs.path.isSep(real_dir[real_dir.len - 1])) return real_path.len > real_dir.len;
+    return real_path.len > real_dir.len + 1 and std.fs.path.isSep(real_path[real_dir.len]);
 }
 
 fn sendJson(gpa: Allocator, status: u16, fields: []jsonu.Field) Response {
