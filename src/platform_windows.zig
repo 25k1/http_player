@@ -79,6 +79,7 @@ extern "kernel32" fn GetModuleFileNameW(
     filename: [*]u16,
     size: DWORD,
 ) callconv(.winapi) DWORD;
+extern "kernel32" fn GetLocalTime(time: *SystemTime) callconv(.winapi) void;
 extern "user32" fn MessageBoxA(
     owner: ?HANDLE,
     text: [*:0]const u8,
@@ -95,6 +96,30 @@ const ConsoleScreenBufferInfo = extern struct {
     window: SmallRect,
     maximum_window_size: Coord,
 };
+const SystemTime = extern struct {
+    year: u16,
+    month: u16,
+    day_of_week: u16,
+    day: u16,
+    hour: u16,
+    minute: u16,
+    second: u16,
+    milliseconds: u16,
+};
+
+pub fn localTime(_: Io) platform.LocalTime {
+    var t: SystemTime = undefined;
+    GetLocalTime(&t);
+    return .{
+        .year = t.year,
+        .month = @intCast(t.month),
+        .day = @intCast(t.day),
+        .hour = @intCast(t.hour),
+        .minute = @intCast(t.minute),
+        .second = @intCast(t.second),
+        .millisecond = t.milliseconds,
+    };
+}
 
 var has_console_flag = false;
 var console_released = false;

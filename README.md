@@ -83,10 +83,10 @@ Precedence, later winning: **built-in defaults → `config.json` → command lin
 `config.json` is picked up automatically if it sits next to the executable:
 
 ```json
-{ "host": "127.0.0.1", "port": 57919, "sounds": "sounds" }
+{ "host": "127.0.0.1", "port": 57919, "sounds": "sounds", "log": "http_player.log" }
 ```
 
-A relative `sounds` path is resolved against the config file itself. Write a
+Relative `sounds` and `log` paths are resolved against the config file itself. Write a
 starter file with `http_player generate-config`; an existing one is never
 overwritten.
 
@@ -96,8 +96,18 @@ overwritten.
 | `--port <n>` | `57919` |
 | `--sounds <dir>` | `sounds`, next to the executable |
 | `-c, --config <file>` | `config.json`, next to the executable |
+| `--log <file>` | `http_player.log`, next to the executable |
 | `-q, --quiet` | Off. Hides the startup banner; errors are still shown. `register` adds it to the logon command |
 
 Run `http_player --help` for the full list.
+
+## Log
+
+The server appends to `http_player.log`: startup and shutdown, every connection
+and request with its status and duration, audio device (re)opening together with
+miniaudio's own messages, and NVDA calls. Each line carries the local time and
+the thread id. Lines are written straight to disk, so after a hang the last line
+of a thread shows where it stopped. At 4 MB the file is moved to
+`http_player.log.1` and a new one is started.
 
 By default the server binds to `127.0.0.1` and is reachable only from this machine. `--host 0.0.0.0` accepts connections from anywhere. `/play` and `/speak` are unauthenticated, so only do that on a trusted network.

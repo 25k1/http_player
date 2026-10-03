@@ -12,6 +12,17 @@ else
 
 pub const StopResult = enum { signalled, not_running, failed };
 
+pub const LocalTime = struct {
+    year: u16 = 0,
+    month: u8 = 0,
+    day: u8 = 0,
+    hour: u8 = 0,
+    minute: u8 = 0,
+    second: u8 = 0,
+    millisecond: u16 = 0,
+};
+
+pub const localTime = detail.localTime;
 pub const requestStop = detail.requestStop;
 pub const initConsole = detail.initConsole;
 pub const releaseConsole = detail.releaseConsole;

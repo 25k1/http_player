@@ -5,6 +5,7 @@ const Io = std.Io;
 
 const AudioEngine = @import("audio.zig").AudioEngine;
 const jsonu = @import("json_util.zig");
+const log = @import("log.zig");
 const nvda = @import("nvda.zig");
 const result = @import("result.zig");
 
@@ -175,6 +176,7 @@ fn handlePlay(gpa: Allocator, ctx: Context, body: []const u8) Response {
 
     const request = parsePlayRequest(gpa, body, &e) catch
         return sendError(gpa, 400, e.msg);
+    log.info("play: {s}, volume {d}", .{ request.file_name, request.volume_percent });
 
     const path = std.fs.path.join(gpa, &.{ ctx.sounds_dir, request.relative_path }) catch
         return sendError(gpa, 500, "failed to play file");
@@ -205,6 +207,7 @@ fn handleSpeak(gpa: Allocator, ctx: Context, body: []const u8) Response {
     var text: []const u8 = "";
     jsonu.Reader.init(doc.value, "").requiredString("text", &text, &e) catch
         return sendError(gpa, 400, e.msg);
+    log.info("speak: {d} bytes of text", .{text.len});
 
     return switch (nvda.speak(gpa, ctx.io, text)) {
         .ok => blk: {

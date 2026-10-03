@@ -95,6 +95,11 @@ fn applyConfig(opts: *Options, value: []const u8, _: *Err) Failure!void {
     opts.overrides.config_path = value;
 }
 
+fn applyLog(opts: *Options, value: []const u8, e: *Err) Failure!void {
+    if (value.len == 0) return e.set("Log file must not be empty", .{});
+    opts.overrides.log_path = value;
+}
+
 fn applyQuiet(opts: *Options, _: []const u8, _: *Err) Failure!void {
     opts.quiet = true;
 }
@@ -145,6 +150,13 @@ const options: []const OptionSpec = &.{
         \\Command-line options override config values.
         ,
         .apply = applyConfig,
+    },
+    .{
+        .long_name = "--log",
+        .short_name = "",
+        .value_name = "<file>",
+        .description = "Log file (default: '{log}' next to the executable).",
+        .apply = applyLog,
     },
     .{
         .long_name = "--quiet",
@@ -266,6 +278,7 @@ fn expand(gpa: Allocator, text: []const u8) Allocator.Error![]const u8 {
         .{ "{port}", port_text },
         .{ "{sounds}", app.sounds_dir_name },
         .{ "{config}", app.config_file_name },
+        .{ "{log}", app.log_file_name },
         .{ "{host}", app.default_host },
     };
 

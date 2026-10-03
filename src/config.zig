@@ -15,12 +15,14 @@ pub const ConfigOverrides = struct {
     port: ?i64 = null,
     sounds_dir: ?[]const u8 = null,
     config_path: ?[]const u8 = null,
+    log_path: ?[]const u8 = null,
 };
 
 pub const Config = struct {
     host: []const u8 = app.default_host,
     port: i64 = app.default_port,
     sounds_dir: []const u8 = "",
+    log_path: []const u8 = "",
 };
 
 fn loadConfigFile(
@@ -45,18 +47,28 @@ fn loadConfigFile(
     var sounds: []const u8 = "";
     try reader.string("sounds", &sounds, e);
     if (sounds.len != 0) {
-        cfg.sounds_dir = if (std.fs.path.isAbsolute(sounds))
-            sounds
-        else
-            join(arena, std.fs.path.dirname(path) orelse "", sounds) catch
-                return e.set("out of memory", .{});
+        cfg.sounds_dir = relativeToFile(arena, path, sounds) catch
+            return e.set("out of memory", .{});
     }
+
+    var log: []const u8 = "";
+    try reader.string("log", &log, e);
+    if (log.len != 0) {
+        cfg.log_path = relativeToFile(arena, path, log) catch
+            return e.set("out of memory", .{});
+    }
+}
+
+fn relativeToFile(arena: Allocator, file: []const u8, target: []const u8) Allocator.Error![]const u8 {
+    if (std.fs.path.isAbsolute(target)) return target;
+    return join(arena, std.fs.path.dirname(file) orelse "", target);
 }
 
 fn applyOverrides(cfg: *Config, overrides: ConfigOverrides) void {
     if (overrides.host) |host| cfg.host = host;
     if (overrides.port) |port| cfg.port = port;
     if (overrides.sounds_dir) |dir| cfg.sounds_dir = dir;
+    if (overrides.log_path) |log| cfg.log_path = log;
 }
 
 const ConfigSource = struct {
@@ -92,6 +104,10 @@ pub fn resolveConfig(
     applyOverrides(&cfg, overrides);
     if (cfg.sounds_dir.len == 0) {
         cfg.sounds_dir = join(arena, exe_dir, app.sounds_dir_name) catch
+            return e.set("out of memory", .{});
+    }
+    if (cfg.log_path.len == 0) {
+        cfg.log_path = join(arena, exe_dir, app.log_file_name) catch
             return e.set("out of memory", .{});
     }
     return cfg;
