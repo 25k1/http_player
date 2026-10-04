@@ -5,6 +5,7 @@ const Io = std.Io;
 
 const c = @import("c");
 
+const DeviceWatcher = @import("device_watch.zig").DeviceWatcher;
 const log = @import("log.zig");
 
 const format = c.ma_format_f32;
@@ -14,6 +15,7 @@ const max_voices = 32;
 const chunk_frames = 256;
 
 const stall_timeout_ms = 2000;
+const device_lock_timeout_ms = 5000;
 
 const Voice = struct {
     decoder: c.ma_decoder = undefined,
@@ -76,6 +78,7 @@ pub const AudioEngine = struct {
     device_ready: bool = false,
     ma_log: c.ma_log = undefined,
     ma_log_ready: bool = false,
+    watcher: DeviceWatcher = .{},
     device_mutex: Io.Mutex = .init,
     callbacks: std.atomic.Value(u64) = .init(0),
     seen_callbacks: u64 = 0,
@@ -92,6 +95,7 @@ pub const AudioEngine = struct {
             _ = c.ma_log_register_callback(&self.ma_log, c.ma_log_callback_init(onMiniaudioLog, null));
             self.ma_log_ready = true;
         }
+        self.watcher.start();
 
         self.device_mutex.lockUncancelable(self.io);
         defer self.device_mutex.unlock(self.io);
@@ -106,6 +110,8 @@ pub const AudioEngine = struct {
         cfg.dataCallback = dataCallback;
         cfg.notificationCallback = onNotification;
         cfg.pUserData = self;
+        // DeviceWatcher handles device changes; see there why miniaudio must not.
+        cfg.wasapi.noAutoStreamRouting = c.MA_TRUE;
 
         var context_cfg = c.ma_context_config_init();
         if (self.ma_log_ready) context_cfg.pLog = &self.ma_log;
@@ -142,11 +148,16 @@ pub const AudioEngine = struct {
     }
 
     fn ensureDevice(self: *AudioEngine) bool {
-        log.lockMutex(&self.device_mutex, self.io, "audio device");
+        // A hung device call must not hang every later request as well.
+        if (!log.lockMutexTimeout(&self.device_mutex, self.io, "audio device", device_lock_timeout_ms)) {
+            return false;
+        }
         defer self.device_mutex.unlock(self.io);
 
         if (!self.device_ready) {
             log.warn("audio: no open device", .{});
+        } else if (self.watcher.takeChange()) {
+            log.info("audio: audio devices changed, reopening", .{});
         } else if (self.deviceHealthy()) {
             return true;
         }
@@ -189,6 +200,7 @@ pub const AudioEngine = struct {
     }
 
     pub fn deinit(self: *AudioEngine) void {
+        self.watcher.stop();
         self.closeDevice();
 
         for (self.voices.items) |voice| {

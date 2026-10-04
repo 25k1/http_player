@@ -80,6 +80,23 @@ pub fn lockMutex(m: *Io.Mutex, lock_io: Io, name: []const u8) void {
     info("{s} lock acquired after {d} ms", .{ name, elapsedMs(lock_io, started) });
 }
 
+/// Like `lockMutex`, but gives up after `timeout_ms`.
+pub fn lockMutexTimeout(m: *Io.Mutex, lock_io: Io, name: []const u8, timeout_ms: i64) bool {
+    if (m.tryLock()) return true;
+
+    warn("{s} lock is busy, waiting", .{name});
+    const started = Io.Clock.awake.now(lock_io);
+    while (!m.tryLock()) {
+        if (elapsedMs(lock_io, started) >= timeout_ms) {
+            err("{s} lock not acquired in {d} ms, giving up", .{ name, timeout_ms });
+            return false;
+        }
+        lock_io.sleep(.fromMilliseconds(10), .awake) catch {};
+    }
+    info("{s} lock acquired after {d} ms", .{ name, elapsedMs(lock_io, started) });
+    return true;
+}
+
 pub fn elapsedMs(clock_io: Io, since: Io.Timestamp) i64 {
     return since.durationTo(Io.Clock.awake.now(clock_io)).toMilliseconds();
 }
