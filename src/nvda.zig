@@ -2,6 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 
+const log = @import("log.zig");
+
 const is_windows = builtin.os.tag == .windows;
 
 pub const SpeakResult = enum { ok, not_running, failed };
@@ -199,9 +201,13 @@ const win = if (is_windows) struct {
         return NdrClientCall2(&stub_desc, proc_format[proc_offset..].ptr, arg);
     }
 
-    fn connect(endpoint: [*:0]const u16) bool {
+    fn connect(endpoint: [:0]const u16) bool {
         if (binding != null) return true;
-        return RpcBindingFromStringBindingW(endpoint, &binding) == 0;
+
+        log.info("nvda: binding to {f}", .{std.unicode.fmtUtf16Le(endpoint)});
+        const status = RpcBindingFromStringBindingW(endpoint.ptr, &binding);
+        if (status != 0) log.warn("nvda: binding failed, RPC status {d}", .{status});
+        return status == 0;
     }
 
     fn endpointName(buf: []u16) ?[:0]const u16 {
@@ -249,12 +255,19 @@ const win = if (is_windows) struct {
         var endpoint_buf: [512]u16 = undefined;
         const endpoint = endpointName(&endpoint_buf) orelse return .failed;
 
-        mutex.lockUncancelable(io);
+        log.lockMutex(&mutex, io, "nvda");
         defer mutex.unlock(io);
 
-        if (!connect(endpoint) or call(test_if_running_offset, null) != 0) {
-            return .not_running;
-        }
-        return if (call(speak_text_offset, text.ptr) == 0) .ok else .failed;
+        if (!connect(endpoint)) return .not_running;
+
+        log.info("nvda: calling TestIfRunning", .{});
+        const running = call(test_if_running_offset, null);
+        log.info("nvda: TestIfRunning returned {d}", .{running});
+        if (running != 0) return .not_running;
+
+        log.info("nvda: calling SpeakText", .{});
+        const spoken = call(speak_text_offset, text.ptr);
+        log.info("nvda: SpeakText returned {d}", .{spoken});
+        return if (spoken == 0) .ok else .failed;
     }
 } else struct {};

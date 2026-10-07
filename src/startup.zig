@@ -110,6 +110,9 @@ const win = if (is_windows) struct {
         if (overrides.config_path) |path| {
             try command.print(gpa, " --config {s}", .{try quotedAbsolute(gpa, io, path)});
         }
+        if (overrides.log_path) |path| {
+            try command.print(gpa, " --log {s}", .{try quotedAbsolute(gpa, io, path)});
+        }
         return command.toOwnedSlice(gpa);
     }
 

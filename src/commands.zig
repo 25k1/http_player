@@ -8,6 +8,7 @@ const AudioEngine = @import("audio.zig").AudioEngine;
 const cli = @import("cli.zig");
 const config = @import("config.zig");
 const HttpServer = @import("http_server.zig").HttpServer;
+const log = @import("log.zig");
 const platform = @import("platform.zig");
 const result = @import("result.zig");
 const startup = @import("startup.zig");
@@ -109,19 +110,30 @@ fn serve(
     }
     defer instance.deinit();
 
+    const log_opened = log.open(io, cfg.log_path);
+    defer log.close();
+    defer log.info("exited", .{});
+    log.info("{s} {s} starting; sounds: {s}; listening on {s}:{d}", .{
+        app.app_name, app.app_version, cfg.sounds_dir, cfg.host, cfg.port,
+    });
+
     var audio: AudioEngine = .init(gpa, io);
     defer audio.deinit();
-    if (!audio.start()) return fail(io, "Failed to initialise the audio engine.");
+    if (!audio.start()) return failLogged(io, "Failed to initialise the audio engine.");
 
     var server: HttpServer = .init(gpa, io, cfg, &audio);
     defer server.deinit();
-    server.bind(&e) catch return fail(io, e.msg);
+    server.bind(&e) catch return failLogged(io, e.msg);
 
     if (!opts.quiet) {
+        const log_line = if (log_opened)
+            std.fmt.allocPrint(arena, "Log: {s}", .{cfg.log_path})
+        else
+            std.fmt.allocPrint(arena, "Log: disabled, cannot open {s}", .{cfg.log_path});
         const banner = std.fmt.allocPrint(
             arena,
-            "Serving sounds from: {s}\nListening on http://{s}:{d}",
-            .{ cfg.sounds_dir, cfg.host, cfg.port },
+            "Serving sounds from: {s}\nListening on http://{s}:{d}\n{s}",
+            .{ cfg.sounds_dir, cfg.host, cfg.port, log_line catch "" },
         ) catch return fail(io, "out of memory");
         platform.showInfo(io, banner);
     }
@@ -133,10 +145,17 @@ fn serve(
     defer stopper.deinit();
 
     server.serve();
+    log.info("shutting down", .{});
     return .ok;
 }
 
+fn failLogged(io: Io, message: []const u8) ExitCode {
+    log.err("{s}", .{message});
+    return fail(io, message);
+}
+
 fn onStop(context: ?*anyopaque) void {
+    log.info("stop requested", .{});
     const server: *HttpServer = @ptrCast(@alignCast(context.?));
     server.stop();
 }

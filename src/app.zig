@@ -3,6 +3,7 @@ const build_options = @import("build_options");
 pub const app_name = "http-player";
 pub const app_version = build_options.version;
 pub const config_file_name = "config.json";
+pub const log_file_name = "http_player.log";
 pub const sounds_dir_name = "sounds";
 pub const default_host = "127.0.0.1";
 

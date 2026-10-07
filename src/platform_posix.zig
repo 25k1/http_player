@@ -6,6 +6,22 @@ const platform = @import("platform.zig");
 const StopResult = platform.StopResult;
 
 extern "c" fn flock(fd: c_int, operation: c_int) c_int;
+extern "c" fn localtime_r(time: *const std.c.time_t, result: *Tm) ?*Tm;
+
+/// Leading fields of `struct tm`, common to glibc, musl and Darwin.
+const Tm = extern struct {
+    sec: c_int,
+    min: c_int,
+    hour: c_int,
+    mday: c_int,
+    mon: c_int,
+    year: c_int,
+    wday: c_int,
+    yday: c_int,
+    isdst: c_int,
+    gmtoff: c_long,
+    zone: ?[*:0]const u8,
+};
 
 const LOCK_EX = 2;
 const LOCK_NB = 4;
@@ -23,6 +39,23 @@ pub fn showWithoutConsole(_: []const u8, _: bool) void {}
 
 pub fn consoleNeedsLeadingNewline() bool {
     return false;
+}
+
+pub fn localTime(io: Io) platform.LocalTime {
+    const ns = Io.Clock.real.now(io).toNanoseconds();
+    const seconds: std.c.time_t = @intCast(@divFloor(ns, std.time.ns_per_s));
+
+    var tm: Tm = undefined;
+    if (localtime_r(&seconds, &tm) == null) return .{};
+    return .{
+        .year = @intCast(tm.year + 1900),
+        .month = @intCast(tm.mon + 1),
+        .day = @intCast(tm.mday),
+        .hour = @intCast(tm.hour),
+        .minute = @intCast(tm.min),
+        .second = @intCast(tm.sec),
+        .millisecond = @intCast(@mod(@divFloor(ns, std.time.ns_per_ms), 1000)),
+    };
 }
 
 pub fn initConsole() void {}
